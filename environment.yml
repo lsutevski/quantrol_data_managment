@@ -1,0 +1,16 @@
+name: live_plot_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - numpy
+  - matplotlib
+  - zmq
+  - ipywidgets
+  - tqdm
+  - pyqtgraph
+  - pyqt  # PyQt6-compatible
+  - pip
+  - pip:
+      - cmap

@@ -1,0 +1,9 @@
+asyncio
+numpy
+matplotlib
+zmq
+ipywidgets
+tqdm
+pyqtgraph
+PyQt6
+cmap
