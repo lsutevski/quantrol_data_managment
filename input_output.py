@@ -186,6 +186,10 @@ class DataPacket:
         self.data = data
         self.source = source
 
+    def update(self):
+        if self.source:
+            self.data = self._load_data_from_hdf5(self.source)
+
     def load_data(self, source, format = "hdf5"):
         if format == "hdf5":
             self.data = self._load_data_from_hdf5(source)
