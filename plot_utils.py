@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtWidgets, QtGui
-from PyQt6.QtCore import pyqtSignal as Signal, pyqtSlot as Slot
-from PyQt6.QtWidgets import QTreeWidget, QTabWidget
+from PyQt6.QtCore import pyqtSignal as Signal, pyqtSlot as Slot, QSize
+from PyQt6.QtWidgets import QTreeWidget, QTabWidget, QStyle
 import numpy as np
 import sys
 import cmasher as cmr
@@ -167,11 +167,14 @@ class Markers:
 
 
 class LegendTabs(QTabWidget):
-    def __init__(self, tabs_spec, parent=None):
+    def __init__(self, tabs_spec, func, parent=None, closable=True, tab_name = "Legend"):
         super().__init__(parent)
         self._trees = {}
+        self.setWindowTitle(tab_name)
+        self.func = func
         for tab_name, nodes in tabs_spec.items():
             tree = QtWidgets.QTreeWidget()
+            tree.itemChanged.connect(self.func)
             tree.setHeaderHidden(True)
             tree.setUniformRowHeights(True)
             tree.setAnimated(True)
@@ -180,6 +183,10 @@ class LegendTabs(QTabWidget):
             self._build_tree(tree, None, nodes)
             self.addTab(self._wrap_with_toolbar(tree), tab_name)
             self._trees[tab_name] = tree
+
+        self.setWindowFlags(QtCore.Qt.WindowType.Window | 
+                            QtCore.Qt.WindowType.CustomizeWindowHint | 
+                            QtCore.Qt.WindowType.WindowTitleHint)
 
     def _wrap_with_toolbar(self, tree):
         w = QtWidgets.QWidget()
@@ -198,9 +205,9 @@ class LegendTabs(QTabWidget):
     
     # ---- tree build helpers
     def _build_tree(self, tree, parent_item, nodes):
-        for entry in nodes:
+        for entry in nodes.items():
             label, payload = entry
-            if isinstance(payload, list):  # group
+            if isinstance(payload, dict):  # group
                 item = QtWidgets.QTreeWidgetItem([label])
                 item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable | QtCore.Qt.ItemFlag.ItemIsAutoTristate)
                 item.setCheckState(0, QtCore.Qt.CheckState.Checked)
@@ -240,3 +247,30 @@ class LegendTabs(QTabWidget):
             return QtGui.QIcon(pm)
         except Exception:
             return None
+        
+
+class ToggleLegendButton(QtWidgets.QToolButton):
+    def __init__(self, widget : QtWidgets.QWidget, *args, **kwargs):
+        super().__init__(*args, 
+                         **kwargs)
+        self.widget = widget
+        self.collapsed = True
+        self.set_icon()
+        self.setAutoRaise(True)
+    
+
+        self.clicked.connect(self._toggle)
+
+    def _toggle(self):
+        self.collapsed = not self.collapsed
+        self.widget.setVisible(not self.collapsed)
+        self.set_icon()
+       
+    def set_icon(self):
+        # we control the RIGHT (or BOTTOM) pane
+        sp = QStyle.StandardPixmap.SP_ArrowRight if self.collapsed else QStyle.StandardPixmap.SP_ArrowLeft
+        icon = self.style().standardIcon(sp)
+        self.setIcon(icon)
+        self.setIconSize(QSize(14, 14))
+
+    

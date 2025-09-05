@@ -48,6 +48,8 @@ class LinePlot(AbstractPlot):
         self.x_values = None
         self.y_values = None
 
+        self._visible = True
+
     def updateLayout(self, plot_item, key, value, **kwargs):
         # Use the specified pen in the configuration
         pen = kwargs.get("pen", pg.mkPen("black"))  # Default to black if no pen
@@ -60,6 +62,11 @@ class LinePlot(AbstractPlot):
         self.y_values = data.get("y", [])
         self.plotItem.setData(self.x_values, self.y_values)
 
+    def setVisible(self, visible: bool):
+        if self.plotItem and self._visible != visible:
+            self.plotItem.setVisible(visible)
+            self._visible = visible
+
 
 
 class ScatterPlot(AbstractPlot):
@@ -69,6 +76,8 @@ class ScatterPlot(AbstractPlot):
 
         self.x_values = None
         self.y_values = None
+
+        self._visible = True
 
     def updateLayout(self, plot_item, key, value, **kwargs):
         # Use the specified pen in the configuration
@@ -84,10 +93,16 @@ class ScatterPlot(AbstractPlot):
         self.y_values = data.get("y", None)
         self.plotItem.setData(self.x_values, self.y_values)
 
+    def setVisible(self, visible: bool):
+        if self.plotItem and self._visible != visible:
+            self.plotItem.setVisible(visible)
+            self._visible = visible
+
 class Counts(AbstractPlot):
     def __init__(self):
         super().__init__()
         self.lines = []
+        self._visible = True
 
     def updateLayout(self, plot_item, key, value, **kwargs):
         self.plot_item = plot_item
@@ -106,6 +121,12 @@ class Counts(AbstractPlot):
             self.plot_item.addLine(x=t, pen=self.pen) for t in data.get("x", [])
         ]
 
+    def setVisible(self, visible: bool):
+        if self.plot_item and self._visible != visible:
+            for line in self.lines:
+                line.setVisible(visible)
+            self._visible = visible
+
 
 class Map(AbstractPlot):
     def __init__(self):
@@ -116,6 +137,8 @@ class Map(AbstractPlot):
         self.y_values = None
         self.z_values = None
 
+        self._visible = True
+
     def updateLayout(self, plot_item, key, value, **kwargs):
         # Add the heatmap (ImageItem) to the provided PlotItem
         self.plotItem = pg.ImageItem()
@@ -123,6 +146,7 @@ class Map(AbstractPlot):
         # self.plotItem.setColorMap(cmap_map)
         plot_item.addItem(self.plotItem)
         plot_item.setTitle(value.get("title", key))
+
         # # Set the colormap for the heatmap
         # self.plotItem.setLookupTable(pg.colormap.get('CET-D1A').getLookupTable())
 
@@ -152,6 +176,10 @@ class Map(AbstractPlot):
         transform.scale(scale_x, scale_y)
         self.plotItem.setTransform(transform)
 
+    def setVisible(self, visible: bool):
+        if self.plotItem and self._visible != visible:
+            self.plotItem.setVisible(visible)
+            self._visible = visible
 
 
 class MultiHistogramLUTItem(pg.HistogramLUTItem):
@@ -160,7 +188,12 @@ class MultiHistogramLUTItem(pg.HistogramLUTItem):
                  **kwargs):
         super().__init__(**kwargs)
 
-        self.images = []
+        self.images : list[pg.ImageItem] = []
+
+        self.hist_data : np.ndarray = None
+        self.hist_centers : np.ndarray = None
+
+        self.gradient.loadPreset('viridis')
 
         self.sigLevelsChanged.connect(self.updateHistogram)
         self.gradient.sigGradientChanged.connect(self.updateHistogram)
@@ -168,20 +201,16 @@ class MultiHistogramLUTItem(pg.HistogramLUTItem):
         if images:
             self.addImages(*images)
 
+        self._visibleImages = []
+
     def addImages(self, *ims):
         """Call this whenever you want to overlay one or more new ImageItems."""
-        first_time = len(self.images) == 0
         for im in ims:
             self.images.append(im)
-        if first_time:
-            # attach the widget to the *first* image only
-            self.setImageItem(self.images[0])
-            self.gradient.loadPreset('viridis')
-        # push out new histogram + LUT right away
         self.updateHistogram()
+        self._pending_region_change = True
 
     def updateHistogram(self):
-        # — collect & flatten all image arrays —
         arrays = []
         for im in self.images:
             data = getattr(im, 'image', None)
@@ -189,26 +218,31 @@ class MultiHistogramLUTItem(pg.HistogramLUTItem):
                 arrays.append(data.ravel())
         if not arrays:
             return
+        
         all_data = np.hstack(arrays)
-
-        lo, hi = self.getLevels()
-        print(lo, hi) 
 
         counts, edges = np.histogram(all_data, bins='scott') #256)
 
         centers = (edges[:-1] + edges[1:]) * 0.5
 
-        self.plot.clear()
         self.plot.setData(centers, counts)
 
-        # build the shared LUT
-        rgba = self.gradient.getLookupTable(256)
-        lut  = (rgba * 255).astype(np.uint8)
+        self.updateLUT()
 
-        # push LUT + levels to every image
+    def updateLUT(self):
         for im in self.images:
-            im.setLevels((lo, hi))
-            im.setLookupTable(lut)
+            im.setLevels(self.getLevels())
+            im.setLookupTable(self.gradient.getLookupTable(nPts=256, alpha=True))
+
+    def updateLUTRegion(self):
+        try:
+            self.updateHistogram()
+            self.region.setRegion(self.plot.getData()[0][[0, -1]])
+            self._pending_region_change = False
+        except IndexError as e:
+            pass
+        
+
 
 
 class ContextMenu(QtWidgets.QMenu):

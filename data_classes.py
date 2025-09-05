@@ -25,11 +25,12 @@ class data1D:
         raise NotImplementedError("Poisson process not implemented yet.")
 
 class data2D:
-    def __init__(self, x=None, y=None, *args, **kwargs):
+    def __init__(self, x=None, y=None, t=None,*args, **kwargs):
         self._x = np.array(x) if x is not None else np.array([])
         self._y = np.array(y) if y is not None else np.array([])
 
         self._mode = kwargs.get('data_mode', OVERWRITE_MODE)
+        self._quatratures = t == None or kwargs.get('quatratures', False)
 
     def clear(self):
         self.x = np.array([])

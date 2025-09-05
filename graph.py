@@ -2,13 +2,13 @@ from abc import ABC, abstractmethod
 import pyqtgraph as pg
 from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtCore import pyqtSignal as Signal, pyqtSlot as Slot, Qt, QPointF
-from PyQt6.QtWidgets import QTabWidget, QDialog, QFileDialog, QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QGridLayout, QProgressBar, QDockWidget, QFormLayout, QLabel, QLineEdit
+from PyQt6.QtWidgets import QHBoxLayout, QTabWidget, QDialog, QFileDialog, QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QGridLayout, QProgressBar, QDockWidget, QFormLayout, QLabel, QLineEdit
 import numpy as np
 import sys
 import cmasher as cmr
 from functools import partial
 from plots import plot_library, MultiHistogramLUTItem, Map
-from plot_utils import ContextMenu, CustomViewBox, Markers, LegendTabs
+from plot_utils import ContextMenu, CustomViewBox, Markers, LegendTabs, ToggleLegendButton
 from typing import Optional
 
 MAP_LAYER = -100
@@ -47,9 +47,15 @@ class Graph(QDockWidget):
 
         self.name = name
         self.config = config
+        self.main_layout = QHBoxLayout()
+        self.main_widget = QWidget()
+        self.main_widget.setLayout(self.main_layout)
         self.layout_widget = pg.GraphicsLayoutWidget()
+        
         self.plots = {}
         self.lut_item = None
+        self.legend = None
+        self._pending_lutRange_update = False
 
         self.viewBox = CustomViewBox(widget=self.layout_widget)
         self.viewBox.menu.act_marker_mode.triggered.connect(self.set_marker_mode)
@@ -69,9 +75,24 @@ class Graph(QDockWidget):
 
         self.parse_config()
 
-        self.setWidget(self.layout_widget)
-
+        self.legend = LegendTabs({
+                'plots': {
+                    'single plot': self.plots
+                }
+            }, self.test)
         
+        self.ToggleLegendButton = ToggleLegendButton(self.legend)
+
+        # self.main_layout.setContentsMargins(0, 0, 0, 0)
+        # self.main_layout.setSpacing(0)
+        
+        self.main_layout.addWidget(self.layout_widget)
+        self.main_layout.addWidget(self.ToggleLegendButton)
+        self.main_layout.addWidget(self.legend)
+
+        self.legend.setVisible(False)
+
+        self.setWidget(self.main_widget)
 
     def parse_config(self):
         image_counter = 0
@@ -90,6 +111,7 @@ class Graph(QDockWidget):
         if any(part["type"] == "HeatMap" for part in self.config["content"].values()):
             self.lut_item = MultiHistogramLUTItem(orientation="horizontal")
             self.layout_widget.addItem(self.lut_item, 0, 0, 1, 1)
+            self._pending_lutRange_update = True
 
         for part_name, part_config in self.config["content"].items():
             pen = self.get_pen(part_config)
@@ -100,14 +122,18 @@ class Graph(QDockWidget):
                 raise ValueError(f"Unknown plot type: {plot_type}")
 
             plot_instance = plot_library[plot_type]()
-            plot_instance.updateLayout(self.main_plot_item, part_name, part_config, pen=pen, z_value = image_counter)
+            plot_instance.updateLayout(self.main_plot_item, 
+                                       part_name, 
+                                       part_config,
+                                       pen=pen, 
+                                       z_value=image_counter)
 
             if isinstance(plot_instance, Map) and self.lut_item:
                 self.lut_item.addImages(plot_instance.plotItem)
                 self.images.append(plot_instance)
                 image_counter += 1
 
-                print(plot_instance.plotItem.zValue())
+                # print(plot_instance.plotItem.zValue())
 
 
             self.plots[part_name] = plot_instance
@@ -140,7 +166,6 @@ class Graph(QDockWidget):
 
 
         self.layout_widget.scene().sigMouseClicked.connect(self._on_mouse_click)
-
         
 
     def get_pen(self, part_config):
@@ -165,6 +190,11 @@ class Graph(QDockWidget):
         for part_name, plot in self.plots.items():
             if part_name in data:
                 plot.updateData(data[part_name])
+
+        if self._pending_lutRange_update and self.lut_item:
+            self.lut_item.updateLUTRegion()
+            self.lut_item.updateLUT()
+            self._pending_lutRange_update = False
 
     def addMarginals(self):
         layout = self.layout_widget.ci.layout
@@ -309,12 +339,21 @@ class Graph(QDockWidget):
         dialog.exec()
 
     def _on_legend(self):
-        legend = LegendTabs({
-            'plots': {
-                'single plot': self.plots
-            }
-        })
-        legend.exec()
+        if self.legend and self.legend.isVisible():
+            self.legend.setVisible(False)
+        elif self.legend and not self.legend.isVisible():
+            self.legend.setVisible(True)
+        elif not self.legend:
+            self.legend = LegendTabs({
+                'plots': {
+                    'single plot': self.plots
+                }
+            }, self.test)
+            self.legend.show()
+        pass
+
+    def test(self, *args, **kwargs):
+        pass
 
 class TransformPopup(QDialog):
     def __init__(self, data, parent=None):
