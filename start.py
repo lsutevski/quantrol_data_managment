@@ -23,10 +23,10 @@ if __name__ == "__main__":
         "QPushButton:hover { background-color: #e0e0e0; }"
     )
 
-    backend = CoreBackend()  # Replace with your actual port
-    backend.setDataReceiver('live', 5555)  # Example for live data
+    backend = CoreBackend()
 
     main_window = MainWindow(backend)
+    
     main_window.show()
 
     sys.exit(app.exec())

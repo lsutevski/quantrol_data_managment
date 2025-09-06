@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 from pathlib import Path
+from filelock import FileLock
 
 DEFAULT_DIR = Path.home() / 'plot_data'
 
@@ -82,93 +83,6 @@ def load_data_from_hdf5(file_path):
         return _load_recursive(f)
 
 
-class DataReceiver:
-    '''
-    Class used to handle receiving and managing data from a ZeroMQ socket.
-    '''
-    def __init__(self, data_port):
-        self.context = Context()
-        self.socket = self.context.socket(SUB)
-        self.socket.setsockopt(RCVHWM, 1)
-        self.socket.connect(f"tcp://localhost:{data_port}")
-        self.socket.setsockopt_string(SUBSCRIBE, '')
-
-        self.poller = Poller()
-        self.poller.register(self.socket, POLLIN)
-
-    def check_data(self):
-        events = dict(self.poller.poll(100))  # Poll sockets with a 100-ms timeout
-        if self.socket in events:
-            try:
-                return self.socket.recv_pyobj(flags=NOBLOCK)
-            except Again as e:
-                print(f"Error receiving data: {e}")
-                return None
-        else:
-            return None
-
-
-    def close(self):
-        self.poller.unregister(self.socket)
-        self.socket.close()
-        self.context.term()
-
-
-
-class DataSender:
-    '''
-    Class used to handle sending data through a ZeroMQ socket.
-    '''
-    def __init__(self, data_port):
-        max_tries = 10
-
-        self.context = Context()
-        self.socket = self.context.socket(PUB)
-        self.socket.setsockopt(SNDHWM, 1)
-
-        temp_flag = True
-        timeout_counter = 0
-
-        for attempt in range(max_tries):
-            try:
-                self.socket.bind(f"tcp://*:{data_port}")
-                print(f"Bound to port {data_port} on attempt {attempt + 1}")
-                break
-            except ZMQError as e:
-                if e.errno == EADDRINUSE:
-                    port += 1
-                else:
-                    raise
-
-        else:
-            raise RuntimeError(f"Failed to bind after {max_tries} attempts")
-
-        self.port = data_port
-        self.poller = Poller()
-        self.poller.register(self.socket, POLLIN)
-
-    def send_data(self, data):
-        try:
-            self.socket.send_pyobj(data, flags=NOBLOCK)
-        except Exception as e:
-            print(f"Error sending data: {e}")
-
-    def close(self):
-        self.socket.close()
-        self.context.term()
-
-class DataFromFile:
-    '''
-    Class used to handle reading data from a file.
-    '''
-
-    def __init__(self, file_path):
-        self.data = load_data_from_hdf5(file_path)
-
-    def check_data(self):
-        return self.data
-
-
 class DataPacket:
     '''
     A class to handle data loading and saving operations.
@@ -176,15 +90,26 @@ class DataPacket:
     '''
 
     def __init__(self, data = None, source = None):
-        if source:
+        if source and not data:
             self.load_data(source)
-            self.source = source
+            self.source = Path(source)
+            self._lock = FileLock(self.source / ".lock")
+
         elif data:
             self.data = data
-            self.source = id(data)
-        
+            self.source = source if source else Path(DEFAULT_DIR / str(id(self.data)))
+            self._lock = FileLock(self.source / ".lock")
+
+        else:
+            self.data = data
+            self.source = source
+
+    def setData(self, data):
         self.data = data
-        self.source = source
+        if self.source:
+            self.save_data()
+        else:
+            self.source = Path(id(self.data))
 
     def update(self):
         if self.source:
@@ -226,6 +151,8 @@ class DataPacket:
             dict: Loaded data, where keys are dataset names and values are numpy arrays.
         """
         if _layer == 0:
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
             with h5py.File(file_path, 'r') as f:
                 _name = str(file_path)
                 return cls._load_data_from_hdf5(f, _layer+1, _name = _name)

@@ -25,11 +25,11 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QGridLayout,
     QDockWidget,
+    QCheckBox
 )
 
 from backend import CoreBackend
 from plots import PlotWidget
-from input_output import DataReceiver, DataFromFile
 
 left  = 0.125  # the left side of the subplots of the figure
 right = 0.9    # the right side of the subplots of the figure
@@ -45,9 +45,9 @@ class MainWindow(QMainWindow):
 
         self._createLayout()
 
-        self.backend = backend
+        self.backend : CoreBackend = backend
 
-        self.plotWidget = None
+        self.plotWidget : PlotWidget = None
 
         self.backend.layoutReady.connect(self.initPlotWidget)
         self.backend.dataReady.connect(self.updateData)
@@ -185,37 +185,125 @@ class MainWindow(QMainWindow):
         self.led.setStyleSheet(self.led_on_style)
         QTimer.singleShot(1000, lambda: self.led.setStyleSheet(self.led_off_style))
         if self.plotWidget is not None:
-            self.plotWidget.updateData(self.backend.data.get('data', {}))
+            self.plotWidget.updateData(self.backend.data_packets)
+
+
+# class ConfigDialog(QDialog):
+#     def __init__(self, parent=None):
+#         super().__init__(parent)
+#         self.setWindowTitle("Configure")
+
+
+#         # Port input
+#         port_label = QLabel("Port:")
+#         self.port_spin = QSpinBox()
+#         self.port_spin.setRange(1, 65535)
+#         self.port_spin.setValue(parent.backend.port)
+
+#         hl_port = QHBoxLayout()
+#         hl_port.addWidget(port_label)
+#         hl_port.addWidget(self.port_spin)
+#         hl_port.addStretch()
+
+#         # Refresh rate
+#         rate_label = QLabel("Refresh rate (s):")
+#         self.rate_spin = QDoubleSpinBox()
+#         self.rate_spin.setRange(100, 10_000)
+#         self.rate_spin.setSingleStep(10)
+#         self.rate_spin.setDecimals(0)
+#         self.rate_spin.setValue(parent.backend.rate)
+
+#         hl_rate = QHBoxLayout()
+#         hl_rate.addWidget(rate_label)
+#         hl_rate.addWidget(self.rate_spin)
+#         hl_rate.addStretch()
+
+#         # OK / Cancel
+#         buttons = QDialogButtonBox(
+#             QDialogButtonBox.StandardButton.Ok |
+#             QDialogButtonBox.StandardButton.Cancel
+#         )
+#         buttons.accepted.connect(self.accept)
+#         buttons.rejected.connect(self.reject)
+
+#         # Layout
+#         vbox = QVBoxLayout()
+#         vbox.setContentsMargins(10, 10, 10, 10)
+#         vbox.setSpacing(10)
+#         vbox.addLayout(hl_port)
+#         vbox.addLayout(hl_rate)
+#         vbox.addWidget(buttons)
+#         self.setLayout(vbox)
+#         self.setFixedSize(360, 140)
+
+#     def get_values(self):
+#         return self.port_spin.value(), self.rate_spin.value()
+
+
 
 class ConfigDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent: MainWindow =None):
         super().__init__(parent)
         self.setWindowTitle("Configure")
 
+        self.settings = {}
+
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(10, 10, 10, 10)
+        vbox.setSpacing(10)
+
+        for setting in parent.backend.config:
+            label = QLabel(setting)
+            value = getattr(parent.backend, parent.backend.config[setting][0])
+
+            dtype = parent.backend.config[setting][1]
+            if dtype == int:
+                box = QSpinBox()
+                box.setValue(value)
+            elif dtype == float:
+                box = QDoubleSpinBox()
+                box.setValue(value)
+            elif dtype == str:
+                box = QLineEdit()
+                box.setText(str(value))
+            elif dtype == bool:
+                box = QCheckBox()
+                box.setChecked(value)
+            elif dtype == "file_dialog":
+                box = QLineEdit()
+                box.setText(value)
+
+            hl = QHBoxLayout()
+            hl.addWidget(label)
+            hl.addWidget(box)
+            hl.addStretch()
+            vbox.addLayout(hl)
+
+            self.settings[setting] = box
 
         # Port input
-        port_label = QLabel("Port:")
-        self.port_spin = QSpinBox()
-        self.port_spin.setRange(1, 65535)
-        self.port_spin.setValue(parent.backend.port)
+        # port_label = QLabel("Port:")
+        # self.port_spin = QSpinBox()
+        # self.port_spin.setRange(1, 65535)
+        # self.port_spin.setValue(parent.backend.port)
 
-        hl_port = QHBoxLayout()
-        hl_port.addWidget(port_label)
-        hl_port.addWidget(self.port_spin)
-        hl_port.addStretch()
+        # hl_port = QHBoxLayout()
+        # hl_port.addWidget(port_label)
+        # hl_port.addWidget(self.port_spin)
+        # hl_port.addStretch()
 
-        # Refresh rate
-        rate_label = QLabel("Refresh rate (s):")
-        self.rate_spin = QDoubleSpinBox()
-        self.rate_spin.setRange(100, 10_000)
-        self.rate_spin.setSingleStep(10)
-        self.rate_spin.setDecimals(0)
-        self.rate_spin.setValue(parent.backend.rate)
+        # # Refresh rate
+        # rate_label = QLabel("Refresh rate (s):")
+        # self.rate_spin = QDoubleSpinBox()
+        # self.rate_spin.setRange(100, 10_000)
+        # self.rate_spin.setSingleStep(10)
+        # self.rate_spin.setDecimals(0)
+        # self.rate_spin.setValue(parent.backend.rate)
 
-        hl_rate = QHBoxLayout()
-        hl_rate.addWidget(rate_label)
-        hl_rate.addWidget(self.rate_spin)
-        hl_rate.addStretch()
+        # hl_rate = QHBoxLayout()
+        # hl_rate.addWidget(rate_label)
+        # hl_rate.addWidget(self.rate_spin)
+        # hl_rate.addStretch()
 
         # OK / Cancel
         buttons = QDialogButtonBox(
@@ -226,21 +314,12 @@ class ConfigDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         # Layout
-        vbox = QVBoxLayout()
-        vbox.setContentsMargins(10, 10, 10, 10)
-        vbox.setSpacing(10)
-        vbox.addLayout(hl_port)
-        vbox.addLayout(hl_rate)
         vbox.addWidget(buttons)
         self.setLayout(vbox)
         self.setFixedSize(360, 140)
 
     def get_values(self):
-        return self.port_spin.value(), self.rate_spin.value()
-
-
-
-
+        return {setting: box.value() for setting, box in self.settings.items()}
 
 
 
